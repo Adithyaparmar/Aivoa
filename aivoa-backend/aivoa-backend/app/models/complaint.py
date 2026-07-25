@@ -1,10 +1,26 @@
 import uuid
+import enum
 from datetime import datetime
 
-from sqlalchemy import Column, String, DateTime, Text, Integer
+from sqlalchemy import Column, String, DateTime, Text, Enum, Index
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 
 from app.core.db import Base
+
+
+class SeverityLevel(str, enum.Enum):
+    low = "Low"
+    medium = "Medium"
+    high = "High"
+    critical = "Critical"
+
+
+class ComplaintStatus(str, enum.Enum):
+    pending_triage = "Pending Triage"
+    saved = "Saved"
+    under_review = "Under Review"
+    closed = "Closed"
 
 
 class Complaint(Base):
@@ -12,27 +28,43 @@ class Complaint(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
+    # Origin & customer
     complaint_source = Column(String, nullable=True)
     customer_name = Column(String, nullable=True)
 
-    product_name = Column(String, nullable=True)
+    # Product & batch identification
+    product_name = Column(String, nullable=True, index=True)
     product_strength_grade = Column(String, nullable=True)
-    batch_lot_number = Column(String, nullable=True)
+    batch_lot_number = Column(String, nullable=True, index=True)
     manufacturing_date = Column(String, nullable=True)
     expiry_date = Column(String, nullable=True)
     quantity_affected = Column(String, nullable=True)
 
+    # Complaint details
     complaint_type = Column(String, nullable=True)
     complaint_date = Column(String, nullable=True)
     complaint_description = Column(Text, nullable=True)
 
-    initial_severity = Column(String, nullable=True)
+    # Initial assessment
+    initial_severity = Column(Enum(SeverityLevel, name="severity_level"), nullable=True)
     priority = Column(String, nullable=True)
 
-    # AI-derived fields (bonus features land here too)
-    completeness_score = Column(Integer, nullable=True)
-    risk_classification = Column(String, nullable=True)
-    duplicate_of = Column(UUID(as_uuid=True), nullable=True)
+    status = Column(
+        Enum(ComplaintStatus, name="complaint_status"),
+        default=ComplaintStatus.pending_triage,
+        nullable=False,
+    )
 
-    status = Column(String, default="Pending Triage")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    analyses = relationship(
+        "ComplaintAnalysis",
+        back_populates="complaint",
+        cascade="all, delete-orphan",
+        foreign_keys="ComplaintAnalysis.complaint_id",
+    )
+
+    __table_args__ = (
+        Index("ix_complaints_product_batch", "product_name", "batch_lot_number"),
+    )

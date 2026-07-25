@@ -28,6 +28,20 @@ class ProcessComplaintResponse(BaseModel):
     summary: Optional[str] = None
 
 
+class AnalysisPayload(BaseModel):
+    completeness: Optional[dict] = None
+    risk: Optional[dict] = None
+    duplicate_check: Optional[dict] = None
+    root_cause_suggestion: Optional[str] = None
+    capa_suggestion: Optional[str] = None
+    summary: Optional[str] = None
+
+
+class SaveComplaintRequest(BaseModel):
+    fields: ComplaintFields
+    analysis: Optional[AnalysisPayload] = None
+
+
 class AssistantAskRequest(BaseModel):
     question: str
     context: Optional[dict] = None

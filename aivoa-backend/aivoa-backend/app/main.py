@@ -2,8 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.core.db import Base, engine
-from app.models import complaint  # noqa: F401 — registers the model with Base
+from app import models  # noqa: F401 — registers all models with Base
 from app.api import complaints, assistant
 
 app = FastAPI(title="AIVOA Complaint Intake API")
@@ -18,11 +17,6 @@ app.add_middleware(
 
 app.include_router(complaints.router, prefix="/api")
 app.include_router(assistant.router, prefix="/api")
-
-
-@app.on_event("startup")
-def on_startup():
-    Base.metadata.create_all(bind=engine)
 
 
 @app.get("/api/health")

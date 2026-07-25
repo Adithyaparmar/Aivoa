@@ -4,10 +4,11 @@ from sqlalchemy import select
 
 from app.core.db import get_db
 from app.core.config import settings
-from app.models.complaint import Complaint
+from app.models.complaint import Complaint, SeverityLevel, ComplaintStatus
+from app.models.analysis import ComplaintAnalysis
 from app.services.document_parser import extract_text
 from app.agent.graph import complaint_graph
-from app.schemas.complaint import ComplaintFields, ProcessComplaintResponse
+from app.schemas.complaint import ComplaintFields, ProcessComplaintResponse, SaveComplaintRequest
 
 router = APIRouter(prefix="/complaints", tags=["complaints"])
 
@@ -52,9 +53,21 @@ async def process_complaint(
     )
 
 
+def _to_severity(value: str | None) -> SeverityLevel | None:
+    if not value:
+        return None
+    try:
+        return SeverityLevel(value)
+    except ValueError:
+        return None  # AI/user gave something outside the enum — drop rather than crash
+
+
 @router.post("")
-def save_complaint(fields: ComplaintFields, db: Session = Depends(get_db)):
-    """Persist the (possibly hand-edited) form fields."""
+def save_complaint(payload: SaveComplaintRequest, db: Session = Depends(get_db)):
+    """Persist the (possibly hand-edited) form fields, plus the AI analysis
+    that produced them, if the frontend sends one along."""
+    fields = payload.fields
+
     record = Complaint(
         complaint_source=fields.complaintSource,
         customer_name=fields.customerName,
@@ -67,11 +80,28 @@ def save_complaint(fields: ComplaintFields, db: Session = Depends(get_db)):
         complaint_type=fields.complaintType,
         complaint_date=fields.complaintDate or None,
         complaint_description=fields.complaintDescription,
-        initial_severity=fields.initialSeverity,
+        initial_severity=_to_severity(fields.initialSeverity),
         priority=fields.priority,
-        status="Saved",
+        status=ComplaintStatus.saved,
     )
     db.add(record)
+    db.flush()  # get record.id before commit, so the analysis row can reference it
+
+    if payload.analysis:
+        a = payload.analysis
+        analysis_record = ComplaintAnalysis(
+            complaint_id=record.id,
+            completeness_score=(a.completeness or {}).get("score"),
+            missing_fields=(a.completeness or {}).get("missing_fields"),
+            risk_level=(a.risk or {}).get("level"),
+            risk_rationale=(a.risk or {}).get("rationale"),
+            is_duplicate=int(bool((a.duplicate_check or {}).get("is_duplicate"))),
+            root_cause_suggestion=a.root_cause_suggestion,
+            capa_suggestion=a.capa_suggestion,
+            summary=a.summary,
+        )
+        db.add(analysis_record)
+
     db.commit()
     db.refresh(record)
-    return {"id": str(record.id), "status": record.status}
+    return {"id": str(record.id), "status": record.status.value}
